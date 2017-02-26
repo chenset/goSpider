@@ -19,6 +19,11 @@ import (
 	"context"
 )
 
+const (
+	ssPassword string = "" //  ss password
+	ssServer   string = "" // domain.com:3308
+)
+
 var debug ss.DebugLog
 
 var (
@@ -228,11 +233,6 @@ var netTransport *http.Transport
 var httpClient *http.Client
 var httpReq *http.Request
 
-const (
-	ssPassword string = ""
-	ssServer   string = ""
-)
-
 func main() {
 	ch := make(chan int)
 	go ssLocal(ch)
@@ -246,6 +246,10 @@ func main() {
 	}
 	// custom client
 	netTransport = &http.Transport{
+		// Go version < 1.6
+		//Dial:dialer.Dial,
+
+		// Go version > 1.6
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return dialer.Dial(network, addr)
 		},
@@ -259,18 +263,24 @@ func main() {
 		fmt.Fprintln(os.Stderr, "can't create request:", err)
 		os.Exit(2)
 	}
+
+	count := 100
+	chs := make([]chan int, count)
 	for {
-		time.Sleep(5e9)
-		for i := 0; i < 10; i++ {
-			go getHttp()
+		for i := 0; i < count; i++ {
+			chs[i] = make(chan int)
+			go getHttp(chs[i], i, count)
 		}
+		for _, ch1 := range chs {
+			<-ch1
+		}
+		time.Sleep(5e9)
 	}
 	<-ch
 	fmt.Println(2222)
 }
 
-func getHttp() {
-
+func getHttp(ch chan int, i int, len int) {
 	var startTimeF float64 = float64(time.Now().UnixNano() / 1000)
 	// request
 	resp, err := httpClient.Do(httpReq)
@@ -280,6 +290,7 @@ func getHttp() {
 		defer resp.Body.Close()
 	}
 	fmt.Println((float64(time.Now().UnixNano()/1000)-startTimeF)/1000.0, "ms")
+	ch <- i
 }
 
 func ssLocal(ch chan int) {
