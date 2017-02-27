@@ -19,9 +19,22 @@ import (
 	"context"
 )
 
-const (
-	ssPassword string = "" //  ss password
-	ssServer   string = "" // domain.com:3308
+var (
+	//  ss password
+	ssPassword []string = []string{
+		"",
+		"",
+	}
+	// domain.com:3308
+	ssServer []string = []string{
+		"",
+		"",
+	}
+	// :1080  127.0.0.1:1080
+	localPort []string = []string{
+		"",
+		"",
+	}
 )
 
 var debug ss.DebugLog
@@ -158,7 +171,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 	return
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, serverId int) {
 	if debug {
 		debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
 	}
@@ -191,8 +204,15 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
+	cipher, err = ss.NewCipher("rc4-md5", ssPassword[serverId])
+	if err != nil {
+		os.Exit(100)
+	}
+
+	//fmt.Println(rand.Intn(2))
+
 	//remote, err := connectToServer(0, rawaddr, addr)
-	remote, err := ss.DialWithRawAddr(rawaddr, ssServer, cipher.Copy())
+	remote, err := ss.DialWithRawAddr(rawaddr, ssServer[serverId], cipher.Copy())
 	if err != nil {
 		log.Println("error connecting to shadowsocks server:", err)
 		return
@@ -209,7 +229,7 @@ func handleConnection(conn net.Conn) {
 	debug.Println("closed connection to", addr)
 }
 
-func run(listenAddr string) {
+func run(listenAddr string, serverId int) {
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
@@ -223,7 +243,7 @@ func run(listenAddr string) {
 			continue
 		}
 		//异步处理每次请求
-		go handleConnection(conn)
+		go handleConnection(conn, serverId)
 	}
 }
 
@@ -235,41 +255,30 @@ var httpReq *http.Request
 
 func main() {
 	ch := make(chan int)
-	go ssLocal(ch)
+	go ssLocal(localPort[0], 0, ch)
+	go ssLocal(localPort[1], 1, ch)
 	time.Sleep(1e9)
+
 	//connect socks5 proxy
+	httpClientArr := httpClients()
+	fmt.Println(httpClientArr)
 	var err error
-	dialer, err = proxy.SOCKS5("tcp", ":1080", nil, proxy.Direct)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "can't connect to the proxy:", err)
-		os.Exit(1)
-	}
-	// custom client
-	netTransport = &http.Transport{
-		// Go version < 1.6
-		//Dial:dialer.Dial,
 
-		// Go version > 1.6
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dialer.Dial(network, addr)
-		},
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	httpClient = &http.Client{Transport: netTransport}
-
-	// create a request
-	httpReq, err = http.NewRequest("GET", "https://ss.flysay.com/", nil)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "can't create request:", err)
-		os.Exit(2)
-	}
-
-	count := 100
+	count := 10
 	chs := make([]chan int, count)
+
 	for {
+		currentInt := rand.Intn(len(localPort))
+		fmt.Println(currentInt)
+		httpReq, err = http.NewRequest("GET", "https://ss.flysay.com/", nil)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "can't create request:", err)
+			os.Exit(2)
+		}
+
 		for i := 0; i < count; i++ {
 			chs[i] = make(chan int)
-			go getHttp(chs[i], i, count)
+			go getHttp(chs[i], i, count, httpClientArr[currentInt])
 		}
 		for _, ch1 := range chs {
 			<-ch1
@@ -280,7 +289,7 @@ func main() {
 	fmt.Println(2222)
 }
 
-func getHttp(ch chan int, i int, len int) {
+func getHttp(ch chan int, i int, len int, httpClient *http.Client) {
 	var startTimeF float64 = float64(time.Now().UnixNano() / 1000)
 	// request
 	resp, err := httpClient.Do(httpReq)
@@ -293,12 +302,31 @@ func getHttp(ch chan int, i int, len int) {
 	ch <- i
 }
 
-func ssLocal(ch chan int) {
-	var err error
-	cipher, err = ss.NewCipher("rc4-md5", ssPassword)
-	if err != nil {
-		os.Exit(100)
-	}
-	run(":1080")
+func httpClients() []*http.Client {
+	httpClientArr := make([]*http.Client, len(localPort))
+	for v, _ := range localPort {
+		dialer, err := proxy.SOCKS5("tcp", localPort[v], nil, proxy.Direct)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "can't connect to the proxy:", err)
+			os.Exit(1)
+		}
 
+		netTransport = &http.Transport{
+			// Go version < 1.6
+			//Dial:dialer.Dial,
+
+			// Go version > 1.6
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return dialer.Dial(network, addr)
+			},
+			TLSHandshakeTimeout: 10 * time.Second,
+		}
+
+		httpClientArr[v] = &http.Client{Transport: netTransport}
+	}
+	return httpClientArr
+}
+
+func ssLocal(localPort string, serverId int, ch chan int, ) {
+	run(localPort, serverId)
 }
