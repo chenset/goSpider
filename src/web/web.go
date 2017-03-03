@@ -1,27 +1,14 @@
 package web
 
 import (
-	"net/http"
-	"net/url"
+	"gopkg.in/gin-gonic/gin.v1"
 )
 
-type HttpHandle struct {
-	method string
-	url    *url.URL
-}
-
-func (self HttpHandle) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	self.method = request.Method
-	self.url = request.URL
-
-	response.Write([]byte(self.get()))
-}
-
-func (self *HttpHandle) get() string {
-	return "response"
-}
-
 func Listen() {
-	//http.ListenAndServeTLS(":443", "./10.0.0.110.crt", "./10.0.0.110.key", myHandle{})
-	http.ListenAndServe(":80", HttpHandle{})
+	//gin.SetMode(gin.ReleaseMode)
+	g := gin.Default()
+	g.GET("/", func(c *gin.Context) {
+		c.String(200, "success")
+	})
+	g.Run(":80") // listen and serve on 0.0.0.0:8080
 }
