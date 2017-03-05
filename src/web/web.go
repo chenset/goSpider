@@ -5,15 +5,19 @@ import (
 	"net/http"
 )
 
-
 func Listen() {
-	router := gin.Default()
-	router.LoadHTMLGlob("templates/*")
-	router.Static("/static", "static")
-	router.GET("/", func(c *gin.Context) {
+	r := gin.Default()
+	r.LoadHTMLGlob("templates/*")
+	r.Static("/static", "static")
+
+	// default route
+	r.NoRoute(func(c *gin.Context) {
+		c.HTML(200, "index.html", nil)
+	})
+	r.GET("/", func(c *gin.Context) {
 		c.HTML(200, "index.html", nil)
 	})
 
-	http.ListenAndServe(":80", router)
+	http.ListenAndServe(":80", r)
 	//router.Run(":80")
 }
