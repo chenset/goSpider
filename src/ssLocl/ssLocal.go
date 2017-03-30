@@ -26,7 +26,7 @@ const (
 	socksCmdConnect = 1
 )
 
-func newServer(server, password, encryptMethod string) *Server {
+func NewServer(server, password, encryptMethod string) *Server {
 	return &Server{
 		server:        server,
 		password:      password,
@@ -47,34 +47,33 @@ type Server struct {
 }
 
 func (cls *Server) Listen() {
-	listenAddress := cls.getListenIP() + ":" + strconv.Itoa(cls.getPort())
+	listenAddress := cls.GetListenIP() + ":" + strconv.Itoa(cls.GetPort())
 
-	ln, err := net.Listen("tcp", listenAddress)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("starting local socks5 server at %v ...\n", listenAddress)
-	for {
-		// 等待每次请求
-		conn, err := ln.Accept()
+	go func() {
+		ln, err := net.Listen("tcp", listenAddress)
 		if err != nil {
-			log.Println("accept:", err)
-			continue
+			log.Fatal(err)
 		}
-		//异步处理每次请求
-		go cls.handleConnection(conn, 0)
-	}
+		log.Printf("starting local socks5 server at %v ...\n", listenAddress)
+		for {
+			// 等待每次请求
+			conn, err := ln.Accept()
+			if err != nil {
+				log.Println("accept:", err)
+				continue
+			}
+			//异步处理每次请求
+			go cls.handleConnection(conn, 0)
+		}
+	}()
 }
 
-func (cls *Server) getListenIP() string {
+func (cls *Server) GetListenIP() string {
 	cls.listenIP = "127.0.0.1"
 	return cls.listenIP
 }
 
-func (cls *Server) getPort() int {
-	//cls.listenPort = 1080 //todo comment out
-	//return cls.listenPort
-
+func (cls *Server) GetPort() int {
 	if cls.listenPort == 0 {
 		var err error
 		cls.listenPort, err = helper.GetFreePort()
@@ -82,6 +81,7 @@ func (cls *Server) getPort() int {
 			log.Fatal(err)
 		}
 	}
+
 	return cls.listenPort
 }
 
