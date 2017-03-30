@@ -5,17 +5,12 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 	"strconv"
-	"math/rand"
 	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 	"errors"
 	"encoding/binary"
 	"helper"
 )
-
-var debug ss.DebugLog
-var cipher *ss.Cipher
 
 var (
 	errAddrType      = errors.New("socks addr type not supported")
@@ -26,34 +21,32 @@ var (
 	errCmd           = errors.New("socks command not supported")
 )
 
-var (
-	//  ss password
-	ssPassword []string = []string{
-	}
-	// domain.com:3308
-	ssServer []string = []string{
-	}
-	// :1080  127.0.0.1:1080
-	localPort []string = []string{
-	}
-)
-
 const (
 	socksVer5       = 5
 	socksCmdConnect = 1
 )
 
-type Server struct {
-	password      string
-	encryptMethod string
-	port          int
-	listenIP      string
+func newServer(server, password, encryptMethod string) *Server {
+	return &Server{
+		server:        server,
+		password:      password,
+		encryptMethod: encryptMethod,
+	}
 }
 
-func (cls *Server) Listen(password string, encryptMethod string) {
-	cls.password = password
-	cls.encryptMethod = encryptMethod
+type Server struct {
+	server        string
+	password      string
+	encryptMethod string
 
+	listenPort int
+	listenIP   string
+
+	cipher *ss.Cipher
+	debug  ss.DebugLog
+}
+
+func (cls *Server) Listen() {
 	listenAddress := cls.getListenIP() + ":" + strconv.Itoa(cls.getPort())
 
 	ln, err := net.Listen("tcp", listenAddress)
@@ -69,7 +62,7 @@ func (cls *Server) Listen(password string, encryptMethod string) {
 			continue
 		}
 		//异步处理每次请求
-		go handleConnection(conn, 0)
+		go cls.handleConnection(conn, 0)
 	}
 }
 
@@ -79,24 +72,78 @@ func (cls *Server) getListenIP() string {
 }
 
 func (cls *Server) getPort() int {
-	cls.port = 1082 //todo comment out
-	return cls.port
+	//cls.listenPort = 1080 //todo comment out
+	//return cls.listenPort
 
-	if cls.port == 0 {
+	if cls.listenPort == 0 {
 		var err error
-		cls.port, err = helper.GetFreePort()
+		cls.listenPort, err = helper.GetFreePort()
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
-	return cls.port
+	return cls.listenPort
 }
 
-func init() {
-	rand.Seed(time.Now().Unix())
+func (cls *Server) handleConnection(conn net.Conn, serverId int) {
+	if cls.debug {
+		cls.debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			conn.Close()
+		}
+	}()
+
+	var err error = nil
+	// borrow & ss-local 握手
+	if err = cls.handShake(conn); err != nil {
+		log.Println("socks handshake:", err)
+		return
+	}
+
+	// 从socket中获取请求地址
+	rawaddr, addr, err := cls.getRequest(conn)
+	if err != nil {
+		log.Println("error getting request:", err)
+		return
+	}
+	// Sending connection established message immediately to client.
+	// This some round trip time for creating socks connection with the client.
+	// But if connection failed, the client will get connection reset error.
+	_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
+	if err != nil {
+		cls.debug.Println("send connection confirmation:", err)
+		return
+	}
+
+	cls.cipher, err = ss.NewCipher(cls.encryptMethod, cls.password)
+	if err != nil {
+		os.Exit(100)
+	}
+
+	//fmt.Println(rand.Intn(2))
+
+	//remote, err := connectToServer(0, rawaddr, addr)
+	remote, err := ss.DialWithRawAddr(rawaddr, cls.server, cls.cipher.Copy())
+	if err != nil {
+		log.Println("error connecting to shadowsocks server:", err)
+		return
+	}
+	defer func() {
+		if !closed {
+			remote.Close()
+		}
+	}()
+
+	go ss.PipeThenClose(conn, remote)
+	ss.PipeThenClose(remote, conn)
+	closed = true
+	cls.debug.Println("closed connection to", addr)
 }
 
-func handShake(conn net.Conn) (err error) {
+func (cls *Server) handShake(conn net.Conn) (err error) {
 	const (
 		idVer     = 0
 		idNmethod = 1
@@ -133,7 +180,7 @@ func handShake(conn net.Conn) (err error) {
 	return
 }
 
-func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
+func (cls *Server) getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 	const (
 		idVer   = 0
 		idCmd   = 1
@@ -194,7 +241,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 
 	rawaddr = buf[idType:reqLen]
 
-	if debug {
+	if cls.debug {
 		switch buf[idType] {
 		case typeIPv4:
 			host = net.IP(buf[idIP0: idIP0+net.IPv4len]).String()
@@ -208,62 +255,4 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 	}
 
 	return
-}
-
-func handleConnection(conn net.Conn, serverId int) {
-	if debug {
-		debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
-	}
-	closed := false
-	defer func() {
-		if !closed {
-			conn.Close()
-		}
-	}()
-
-	var err error = nil
-	// borrow & ss-local 握手
-	if err = handShake(conn); err != nil {
-		log.Println("socks handshake:", err)
-		return
-	}
-
-	// 从socket中获取请求地址
-	rawaddr, addr, err := getRequest(conn)
-	if err != nil {
-		log.Println("error getting request:", err)
-		return
-	}
-	// Sending connection established message immediately to client.
-	// This some round trip time for creating socks connection with the client.
-	// But if connection failed, the client will get connection reset error.
-	_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
-	if err != nil {
-		debug.Println("send connection confirmation:", err)
-		return
-	}
-
-	cipher, err = ss.NewCipher("rc4-md5", ssPassword[serverId])
-	if err != nil {
-		os.Exit(100)
-	}
-
-	//fmt.Println(rand.Intn(2))
-
-	//remote, err := connectToServer(0, rawaddr, addr)
-	remote, err := ss.DialWithRawAddr(rawaddr, ssServer[serverId], cipher.Copy())
-	if err != nil {
-		log.Println("error connecting to shadowsocks server:", err)
-		return
-	}
-	defer func() {
-		if !closed {
-			remote.Close()
-		}
-	}()
-
-	go ss.PipeThenClose(conn, remote)
-	ss.PipeThenClose(remote, conn)
-	closed = true
-	debug.Println("closed connection to", addr)
 }
