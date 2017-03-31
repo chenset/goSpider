@@ -2,22 +2,24 @@ package requestor
 
 import (
 	"net/http"
-	"golang.org/x/net/proxy"
 	"fmt"
 	"os"
 	"net"
 	"time"
 	"context"
+	"golang.org/x/net/proxy"
 )
 
-func client(ssLocalServer string) {
+
+
+func client(dialer proxy.Dialer) {
 	httpReq, err := http.NewRequest("GET", "https://ss.flysay.com/", nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "can't create request:", err)
 		os.Exit(2)
 	}
 
-	getHttp(httpClients(ssLocalServer), httpReq)
+	getHttp(httpClients(dialer), httpReq)
 }
 
 func getHttp(httpClient *http.Client, httpReq *http.Request) {
@@ -33,12 +35,7 @@ func getHttp(httpClient *http.Client, httpReq *http.Request) {
 	fmt.Println((float64(time.Now().UnixNano()/1000)-startTimeF)/1000.0, "ms")
 }
 
-func httpClients(ssLocalServer string) *http.Client {
-	dialer, err := proxy.SOCKS5("tcp", ssLocalServer, nil, proxy.Direct)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "can't connect to the proxy:", err)
-		os.Exit(1)
-	}
+func httpClients(dialer proxy.Dialer) *http.Client {
 
 	netTransport := &http.Transport{
 		// Go version < 1.6
