@@ -4,22 +4,17 @@ import (
 	"net/http"
 	"fmt"
 	"os"
-	"net"
 	"time"
-	"context"
-	"golang.org/x/net/proxy"
 )
 
-
-
-func client(dialer proxy.Dialer) {
+func request(client *http.Client) {
 	httpReq, err := http.NewRequest("GET", "https://ss.flysay.com/", nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "can't create request:", err)
 		os.Exit(2)
 	}
 
-	getHttp(httpClients(dialer), httpReq)
+	getHttp(client, httpReq)
 }
 
 func getHttp(httpClient *http.Client, httpReq *http.Request) {
@@ -33,20 +28,4 @@ func getHttp(httpClient *http.Client, httpReq *http.Request) {
 	}
 
 	fmt.Println((float64(time.Now().UnixNano()/1000)-startTimeF)/1000.0, "ms")
-}
-
-func httpClients(dialer proxy.Dialer) *http.Client {
-
-	netTransport := &http.Transport{
-		// Go version < 1.6
-		//Dial:dialer.Dial,
-
-		// Go version > 1.6
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dialer.Dial(network, addr)
-		},
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-
-	return &http.Client{Transport: netTransport}
 }
