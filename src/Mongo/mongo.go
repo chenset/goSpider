@@ -2,6 +2,7 @@ package Mongo
 
 import (
 	"gopkg.in/mgo.v2"
+	"log"
 )
 
 type M struct {
@@ -9,14 +10,16 @@ type M struct {
 	DBServer string
 }
 
-var singleton *M
+var singleton *mgo.Database
 
 func GetDB() *mgo.Database {
 	if singleton == nil {
-		singleton = &M{DBName: "test", DBServer: "10.0.0.2:27017"}
+		m := &M{DBName: "test", DBServer: "10.0.0.2:27017"}
+		singleton = m.connect()
+		log.Println("Connect MongoDB " + m.DBServer)
 	}
 
-	return singleton.connect()
+	return singleton
 }
 
 func (o *M) connect() *mgo.Database {
