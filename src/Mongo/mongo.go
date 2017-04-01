@@ -1,37 +1,37 @@
 package Mongo
 
 import (
-	"log"
 	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 )
-type Person struct {
-	Name string
-	Phone string
+
+type M struct {
+	DBName   string
+	DBServer string
 }
-func DB() {
-	session, err := mgo.Dial("10.0.0.2:27017")
+
+var singleton *M
+
+func GetDB() *mgo.Database {
+	if singleton == nil {
+		singleton = &M{DBName: "test", DBServer: "10.0.0.2:27017"}
+	}
+
+	return singleton.connect()
+}
+
+func (o *M) connect() *mgo.Database {
+	conn, err := mgo.Dial(o.DBServer)
 	if err != nil {
 		panic(err)
 	}
-	defer session.Close()
+
+	defer func() {
+		if r := recover(); r != nil {
+			conn.Clone()
+		}
+	}()
 
 	// Optional. Switch the session to a monotonic behavior.
-	session.SetMode(mgo.Monotonic, true)
-
-	c := session.DB("test").C("people")
-	err = c.Insert(&Person{"Ale", "+55 53 8116 9639"},
-		&Person{"Cla", "+55 53 8402 8510"})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	result := Person{}
-	err = c.Find(bson.M{"name": "Ale"}).One(&result)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Phone:", result.Phone)
-
+	conn.SetMode(mgo.Monotonic, true)
+	return conn.DB(o.DBName)
 }
